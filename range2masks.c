@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 Yoichi Hariguchi
+ * Copyright (c) 2017, 2018, 2019, 2020, 2021 Yoichi Hariguchi
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated
@@ -25,8 +25,10 @@
  */
 
 #include <assert.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <regex.h>
 #include "local_types.h"
-
 
 enum {
     MAXENT  = 32,
@@ -43,6 +45,60 @@ typedef struct aclRule_ {
 } aclRule;
 
 
+bool isNumber (char *s);
+int  mask2plen (u32 mask);
+int  ipv4a2h (char *s, u32 *addr);
+void printEntry (u32 patt, u32 mask);
+void printEntries (aclRule* p);
+int  range2masks (u32 st, u32 end, aclRule* pRule);
+
+
+bool
+isNumber (char *s)
+{
+    char *pRstr = "^(0x|)[0-9A-Fa-f]+$";
+    static regex_t re;
+    static bool isCompiled = FALSE;
+
+    if (!isCompiled) {
+        if (regcomp(&re, pRstr, REG_EXTENDED | REG_NOSUB)) {
+            return FALSE;
+        }
+        isCompiled = TRUE;
+    }
+    if (regexec(&re, s, 0, NULL, 0)) {
+        return FALSE;
+    }
+    return TRUE;
+}
+
+int
+mask2plen (u32 mask)
+{
+    int plen = 32;
+    int m = ~0;
+
+    while (plen > 0) {
+        if (m == mask) {
+            return plen;
+        }
+        m <<= 1;
+        --plen;
+    }
+    return plen;
+}
+
+int
+ipv4a2h (char *s, u32 *addr)
+{
+    struct sockaddr_in sa;
+
+    if (inet_pton(AF_INET, s, &(sa.sin_addr.s_addr)) > 0) {
+        *addr = ntohl(sa.sin_addr.s_addr);
+        return SUCCESS;
+    }
+    return FAILURE;
+}
 
 void
 printEntry (u32 patt, u32 mask)
@@ -52,8 +108,14 @@ printEntry (u32 patt, u32 mask)
 
     st  = patt;
     end = patt | ((~patt) & (~mask));
-    printf("patt: %08x  (%d - %d)\n", patt, st, end);
-    printf("mask: %08x\n", mask);
+    printf("patt:   %08x (%d - %d)\n", patt, st, end);
+    printf("mask:   %08x\n", mask);
+    printf("prefix: %d.%d.%d.%d/%d\n",
+           (patt >> 24),
+           (patt >> 16) & 0xff,
+           (patt >>8) & 0xff,
+           patt & 0xff,
+           mask2plen(mask));
 }
 
 void
@@ -69,7 +131,6 @@ printEntries (aclRule* p)
         printEntry(p->ent[i].patt, p->ent[i].mask);
     }
 }
-
 
 /* range2masks:
      Prints out a set of TCAM entries that represents the range
@@ -139,7 +200,6 @@ range2masks (u32 st, u32 end, aclRule* pRule)
     return SUCCESS;
 }
 
-
 int
 main (int argc, char *argv[])
 {
@@ -153,8 +213,18 @@ main (int argc, char *argv[])
                 "Usage: range2ent <start> <end> [-optimize]\n");
         exit(1);
     }
-    start = strtoul(argv[1], NULL, 0);
-    end   = strtoul(argv[2], NULL, 0);
+    if (isNumber(argv[1])) {
+        start = strtoul(argv[1], NULL, 0);
+    } else if (ipv4a2h(argv[1], &start) == FAILURE) {
+        fprintf(stderr, "ERROR: failed to parse %s\n", argv[1]);
+        exit(1);
+    }
+    if (isNumber(argv[2])) {
+        end = strtoul(argv[2], NULL, 0);
+    } else if (ipv4a2h(argv[2], &end) == FAILURE) {
+        fprintf(stderr, "ERROR: failed to parse %s\n", argv[2]);
+        exit(1);
+    }
     rules[0].nEnt = 0;
     rules[1].nEnt = 0;
     rules[2].nEnt = 0;
