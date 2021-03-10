@@ -53,6 +53,16 @@ void printEntries (aclRule* p);
 int  range2masks (u32 st, u32 end, aclRule* pRule);
 
 
+/**
+ * @name  isNumber
+ *
+ * @brief Checks if the parameter (string) is a number or not
+ *
+ * @param[in] s Pointer to a string that may represent a number
+ *
+ * @retval TRUE  's' is a number (decimal or hexadecimal)
+ * @retval FALSE 's' is not a number
+ */
 bool
 isNumber (char *s)
 {
@@ -72,6 +82,16 @@ isNumber (char *s)
     return TRUE;
 }
 
+/**
+ * @name  mask2plen
+ *
+ * @brief Converts a netmask into a prefix length
+ *
+ * @param[in] mask Netmask
+ *
+ * @retval >= 0 prefix length representing 'mask'
+ * @retval < 0  'mask' is not contiguous
+ */
 int
 mask2plen (u32 mask)
 {
@@ -88,16 +108,41 @@ mask2plen (u32 mask)
     return plen;
 }
 
+/**
+ * @name  ipv4a2h
+ *
+ * @brief Converts an IPv4 dotted decimal notation to the host order integer
+ *
+ * @param[in]  s    Sgring representing an IPv4 address (w/o prefix length)
+ * @param[out] addr Pointer to the converted IPv4 address
+ *
+ * @retval FAILURE (-1) Wrong IPv4 address format, or 'addr' is NULL
+ * @retval SUCCESS (0)  '*addr' has the IPv4 address in the host order.
+ */
 int
 ipv4a2h (char *s, u32 *addr)
 {
     struct sockaddr_in sa;
 
+    if (addr == NULL) {
+        return FAILURE;
+    }
     if (inet_pton(AF_INET, s, &(sa.sin_addr.s_addr)) > 0) {
         *addr = ntohl(sa.sin_addr.s_addr);
         return SUCCESS;
     }
     return FAILURE;
+}
+
+void
+printPrefix (u32 patt, u32 mask)
+{
+    printf("%d.%d.%d.%d/%d\n",
+           (patt >> 24),
+           (patt >> 16) & 0xff,
+           (patt >>8) & 0xff,
+           patt & 0xff,
+           mask2plen(mask));
 }
 
 void
@@ -128,20 +173,26 @@ printEntries (aclRule* p)
         return;
     }
     for (i = 0; i < p->nEnt; ++i) {
+        printPrefix(p->ent[i].patt, p->ent[i].mask);
+    }
+    puts("\n");
+    for (i = 0; i < p->nEnt; ++i) {
         printEntry(p->ent[i].patt, p->ent[i].mask);
     }
 }
 
-/* range2masks:
-     Prints out a set of TCAM entries that represents the range
-     (st <= range <= end). 'end' must be < 0xffffffff.
-   Input:
-     st  - number that the range starts
-     end - number that the range ends
-   Output:
-   Return:
-     SUCCESS - if there is no error
-     FAILURE - otherwise.
+/**
+ * @name  range2masks
+ *
+ * @brief Convert an arbitrary range into a set of TCAM entries 
+ *        (st <= range <= end). 'end' must be < 0xffffffff.
+ *
+ * @param[in]  st    Number that the range starts
+ * @param[in]  end   Number that the range ends
+ * @param[out] pRule Converted result. An array of (pattern, mask)
+ *
+ * @retval SUCCESS The range is successfully converted
+ * @retval FAILURE Otherwise
  */
 int
 range2masks (u32 st, u32 end, aclRule* pRule)
